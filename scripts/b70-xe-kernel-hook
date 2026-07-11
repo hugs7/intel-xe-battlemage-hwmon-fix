@@ -1,0 +1,19 @@
+#!/bin/sh
+
+kernel_release=${1:-}
+log=/var/log/b70-xe-hwmon.log
+
+if [ -z "$kernel_release" ]; then
+	logger -t b70-xe-hwmon "kernel hook called without a kernel release"
+	exit 0
+fi
+
+if [ ! -x /usr/local/sbin/b70-xe-rebuild ]; then
+	logger -t b70-xe-hwmon "rebuild helper is not installed"
+elif ! /usr/local/sbin/b70-xe-rebuild "$kernel_release" >>"$log" 2>&1; then
+	logger -t b70-xe-hwmon \
+		"could not build for $kernel_release; previous driver retained (see $log)"
+fi
+
+# Never break a kernel/package upgrade because this optional module failed.
+exit 0

@@ -3,9 +3,9 @@
 Experimental Linux `xe` driver workaround for stale package-temperature readings
 and a fan that remains unnecessarily fast on an idle Intel Battlemage GPU.
 
-This is **not an upstream fix**. It is a small workaround that force-wakes the
-root GT before the hwmon temperature register is read, then waits 1–2 ms for
-thermal telemetry to refresh.
+This is **not an upstream fix**. The current expanded patch force-wakes the root
+GT before MMIO temperature reads, waits 1–2 ms for telemetry to refresh, and
+exposes the available per-channel VRAM temperature registers.
 
 ## Tested hardware and software
 
@@ -33,9 +33,10 @@ of remaining stale (observed `55 -> 50 -> ... -> 44°C`), and the fan returned t
 about 1400 RPM. Starting inference no longer caused an impossible package-
 temperature collapse.
 
-**Known limitation:** the VRAM temperature remains stale or coarse and may still
-correct itself when the GPU wakes. This workaround addresses the package-
-temperature/fan symptom, not every telemetry source.
+The expanded patch exposes the aggregate and available per-channel VRAM
+temperatures. The tested B70 firmware rejects the thermal mailbox used for
+memory-controller (`mctrl`) and PCIe temperatures, so those channels remain
+hidden rather than reporting invented or stale values.
 
 Updating Battlemage GuC firmware from `70.44.1` to `70.49.4` did not resolve the
 problem on the tested card. The card's persistent firmware was `31.1058`, with no
@@ -43,15 +44,51 @@ newer firmware offered by LVFS at the time of testing.
 
 ## Patch
 
-[`xe-hwmon-battlemage-forcewake.patch`](xe-hwmon-battlemage-forcewake.patch)
-changes only `drivers/gpu/drm/xe/xe_hwmon.c` and is gated to
-`XE_BATTLEMAGE` devices.
+[`xe-hwmon-battlemage-telemetry.patch`](xe-hwmon-battlemage-telemetry.patch) is
+the current patch. It contains the force-wake workaround, VRAM channels, and
+thermal-mailbox support. Unsupported mailbox channels are hidden.
 
-It acquires the root GT's `XE_FW_GT` force-wake domain, waits 1–2 ms, reads the
-temperature register, and releases force-wake. A failed force-wake returns
-`-ETIMEDOUT` rather than presenting another potentially invalid reading.
+[`xe-hwmon-battlemage-forcewake.patch`](xe-hwmon-battlemage-forcewake.patch) is
+retained as the historical minimal option. It only applies the package/VRAM
+force-wake workaround.
 
-## Build on Ubuntu 24.04
+## Automatic setup on Ubuntu 24.04
+
+Install the build dependencies and this repository's helper and package hooks:
+
+```bash
+sudo apt install bc bison build-essential dpkg-dev flex libelf-dev libssl-dev \
+  linux-headers-"$(uname -r)" wget zstd
+sudo ./install.sh
+```
+
+The installer copies the expanded patch to `/var/lib/b70-xe-hwmon`, installs
+`b70-xe-rebuild` in `/usr/local/sbin`, and registers the same fail-open hook in
+both `/etc/kernel/postinst.d` and `/etc/kernel/header_postinst.d`. Using both is
+important because image and header packages can be configured in either order.
+The hook logs failures to `/var/log/b70-xe-hwmon.log` but always returns success,
+so an optional local module can never fail a kernel package update.
+
+The helper intentionally supports only kernels whose headers identify their
+source package as `linux-hwe-6.17`. It downloads the exact matching source files
+from Launchpad, applies the patch, builds with the installed kernel's exact
+release, and compares both vermagic and imported symbol CRCs with Ubuntu's stock
+`xe.ko`. Only then does it atomically place the override and refresh depmod and
+the initramfs. A missing header, source/patch mismatch (including a future source
+that already contains some backport), build error, or verification error leaves
+the stock module—and any existing working override—untouched.
+
+To build immediately rather than waiting for a package hook:
+
+```bash
+sudo /usr/local/sbin/b70-xe-rebuild "$(uname -r)"
+```
+
+This automation is deliberately not generalized to another Ubuntu source
+package or kernel series: kernel module ABI compatibility must be re-evaluated
+before extending it beyond 6.17.
+
+## Manual build (historical minimal patch)
 
 These commands intentionally build the module locally against the running
 kernel. Kernel modules have a strict ABI/version dependency.
@@ -79,8 +116,8 @@ dpkg-query -W -f='${Version}\n' "linux-image-$(uname -r)"
 head -n 1 debian.master/changelog
 ```
 
-Prepare and patch the source tree. Replace `/path/to/repo` with this repository's
-absolute path:
+Prepare and apply the old force-wake-only patch. Replace `/path/to/repo` with
+this repository's absolute path:
 
 ```bash
 cp "/boot/config-$(uname -r)" .config
@@ -183,7 +220,8 @@ The packaged Ubuntu `xe` module remains in the kernel's normal module directory.
 ## Caveats
 
 - This was tested on one Arc Pro B70 and one Ubuntu kernel build.
-- Every new kernel uses its own stock module unless the patch is rebuilt for it.
+- Supported 6.17 HWE kernels are automatically rebuilt after setup; all other
+  kernel series continue to use their stock module.
 - Polling temperature now briefly force-wakes the GT, which may have a small
   power-management cost proportional to sensor polling frequency.
 - This may mask an underlying device-firmware telemetry bug. An eventual
