@@ -12,12 +12,12 @@ exposes the available per-channel VRAM temperature registers.
 - Intel Arc Pro B70 / Battlemage G31 (`8086:e223`)
 - Subsystem `6688:8073`
 - Ubuntu 24.04
-- Ubuntu HWE kernel `6.17.0-35-generic`
+- Ubuntu HWE kernels `6.17.0-35-generic` and `7.0.0-28-generic`
 - `xe` kernel driver
 
-The installed test module was built from Ubuntu's matching
-`linux-hwe-6.17_6.17.0-35.35~24.04.1` source package. Do not install a compiled
-module built for a different kernel.
+The installed test modules were built from Ubuntu's matching `linux-hwe-6.17`
+and `linux-hwe-7.0` source packages. Do not install a compiled module built for
+a different kernel.
 
 ## Symptoms and result
 
@@ -44,9 +44,13 @@ newer firmware offered by LVFS at the time of testing.
 
 ## Patch
 
-[`xe-hwmon-battlemage-telemetry.patch`](xe-hwmon-battlemage-telemetry.patch) is
-the current patch. It contains the force-wake workaround, VRAM channels, and
+[`xe-hwmon-battlemage-telemetry.patch`](xe-hwmon-battlemage-telemetry.patch)
+targets Linux 6.17. It contains the force-wake workaround, VRAM channels, and
 thermal-mailbox support. Unsupported mailbox channels are hidden.
+
+[`xe-hwmon-battlemage-forcewake-7.0.patch`](xe-hwmon-battlemage-forcewake-7.0.patch)
+targets Linux 7.0, where the expanded thermal sensors are already upstream. It
+adds only the force-wake workaround to the upstream temperature read paths.
 
 [`xe-hwmon-battlemage-forcewake.patch`](xe-hwmon-battlemage-forcewake.patch) is
 retained as the historical minimal option. It only applies the package/VRAM
@@ -62,7 +66,7 @@ sudo apt install bc bison build-essential dpkg-dev flex libelf-dev libssl-dev \
 sudo ./install.sh
 ```
 
-The installer copies the expanded patch to `/var/lib/b70-xe-hwmon`, installs
+The installer copies both versioned patches to `/var/lib/b70-xe-hwmon`, installs
 `b70-xe-rebuild` in `/usr/local/sbin`, and registers the same fail-open hook in
 both `/etc/kernel/postinst.d` and `/etc/kernel/header_postinst.d`. Using both is
 important because image and header packages can be configured in either order.
@@ -70,13 +74,14 @@ The hook logs failures to `/var/log/b70-xe-hwmon.log` but always returns success
 so an optional local module can never fail a kernel package update.
 
 The helper intentionally supports only kernels whose headers identify their
-source package as `linux-hwe-6.17`. It downloads the exact matching source files
-from Launchpad, applies the patch, builds with the installed kernel's exact
-release, and compares both vermagic and imported symbol CRCs with Ubuntu's stock
-`xe.ko`. Only then does it atomically place the override and refresh depmod and
-the initramfs. A missing header, source/patch mismatch (including a future source
-that already contains some backport), build error, or verification error leaves
-the stock module—and any existing working override—untouched.
+source package as `linux-hwe-6.17` or `linux-hwe-7.0`. It downloads the exact
+matching source files from Ubuntu's archive (falling back to Launchpad), applies
+the matching patch, builds with the installed kernel's exact release, and
+compares both vermagic and imported symbol CRCs with Ubuntu's stock `xe.ko`. Only
+then does it atomically place the override and refresh depmod and the initramfs.
+A missing header, source/patch mismatch (including a future source that already
+contains some backport), build error, or verification error leaves the stock
+module—and any existing working override—untouched.
 
 To build immediately rather than waiting for a package hook:
 
@@ -84,9 +89,9 @@ To build immediately rather than waiting for a package hook:
 sudo /usr/local/sbin/b70-xe-rebuild "$(uname -r)"
 ```
 
-This automation is deliberately not generalized to another Ubuntu source
-package or kernel series: kernel module ABI compatibility must be re-evaluated
-before extending it beyond 6.17.
+This automation is deliberately not generalized to other Ubuntu source packages
+or kernel series: kernel module ABI compatibility must be re-evaluated before
+extending it beyond the explicitly supported versions.
 
 ## Manual build (historical minimal patch)
 
@@ -220,8 +225,8 @@ The packaged Ubuntu `xe` module remains in the kernel's normal module directory.
 ## Caveats
 
 - This was tested on one Arc Pro B70 and one Ubuntu kernel build.
-- Supported 6.17 HWE kernels are automatically rebuilt after setup; all other
-  kernel series continue to use their stock module.
+- Supported 6.17 and 7.0 HWE kernels are automatically rebuilt after setup; all
+  other kernel series continue to use their stock module.
 - Polling temperature now briefly force-wakes the GT, which may have a small
   power-management cost proportional to sensor polling frequency.
 - This may mask an underlying device-firmware telemetry bug. An eventual

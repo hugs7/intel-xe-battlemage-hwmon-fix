@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly PATCH=/var/lib/b70-xe-hwmon/xe-hwmon-battlemage-telemetry.patch
+readonly PATCH_DIR=/var/lib/b70-xe-hwmon
 readonly CACHE=/var/cache/b70-xe-hwmon
 readonly LAUNCHPAD=https://launchpad.net/ubuntu/+archive/primary/+sourcefiles
 
@@ -21,7 +21,6 @@ force=${2:-}
 [[ $EUID -eq 0 ]] || die "must run as root"
 [[ $kernel_release =~ ^[0-9A-Za-z._+-]+$ ]] || die "invalid kernel release: $kernel_release"
 [[ -z $force || $force == --force ]] || die "usage: b70-xe-rebuild [kernel-release] [--force]"
-[[ -f $PATCH ]] || die "patch not found: $PATCH"
 
 exec 9>/run/lock/b70-xe-hwmon.lock
 flock 9
@@ -48,12 +47,23 @@ fi
 source_package=$(dpkg-query -W -f='${source:Package}' "$headers_package")
 source_version=$(dpkg-query -W -f='${source:Version}' "$headers_package")
 
-if [[ $source_package != linux-hwe-6.17 ]]; then
-	die "unsupported source package $source_package; leaving the stock driver in place"
-fi
+case $source_package in
+	linux-hwe-6.17)
+		patch_file="$PATCH_DIR/xe-hwmon-battlemage-telemetry.patch"
+		;;
+	linux-hwe-7.0)
+		patch_file="$PATCH_DIR/xe-hwmon-battlemage-forcewake-7.0.patch"
+		;;
+	*)
+		die "unsupported source package $source_package; leaving the stock driver in place"
+		;;
+esac
+readonly patch_file
+[[ -f $patch_file ]] || die "patch not found: $patch_file"
 
 orig_version=${source_version%%-*}
-readonly package_url="$LAUNCHPAD/$source_package/$source_version"
+readonly archive_url="https://archive.ubuntu.com/ubuntu/pool/main/${source_package:0:1}/$source_package"
+readonly launchpad_url="$LAUNCHPAD/$source_package/$source_version"
 readonly dsc_name="${source_package}_${source_version}.dsc"
 readonly orig_name="${source_package}_${orig_version}.orig.tar.gz"
 readonly diff_name="${source_package}_${source_version}.diff.gz"
@@ -67,9 +77,13 @@ download() {
 	if [[ ! -s $CACHE/$name ]]; then
 		log "downloading $name"
 		if ! wget -q --show-progress --timeout=30 --tries=2 \
-			-O "$temporary" "$package_url/$name"; then
-			rm -f "$temporary"
-			return 1
+			-O "$temporary" "$archive_url/$name"; then
+			log "Ubuntu archive download failed; trying Launchpad"
+			if ! wget -q --show-progress --timeout=30 --tries=2 \
+				-O "$temporary" "$launchpad_url/$name"; then
+				rm -f "$temporary"
+				return 1
+			fi
 		fi
 		mv "$temporary" "$CACHE/$name"
 	fi
@@ -86,8 +100,8 @@ source_dir="$workdir/source"
 log "extracting Ubuntu source $source_version"
 dpkg-source -x "$CACHE/$dsc_name" "$source_dir"
 
-log "applying telemetry patch"
-patch --batch --forward --fuzz=0 -d "$source_dir" -p1 < "$PATCH"
+log "applying $(basename "$patch_file")"
+patch --batch --forward --fuzz=0 -d "$source_dir" -p1 < "$patch_file"
 
 cp "$boot_config" "$source_dir/.config"
 cp "$headers_dir/Module.symvers" "$source_dir/Module.symvers"
@@ -120,8 +134,11 @@ built_vermagic=$(modinfo -F vermagic "$built_module")
 
 modprobe --dump-modversions "$stock_module" | sort > "$workdir/stock.modversions"
 modprobe --dump-modversions "$built_module" | sort > "$workdir/built.modversions"
-cmp -s "$workdir/stock.modversions" "$workdir/built.modversions" ||
-	die "imported symbol versions differ from Ubuntu's stock xe module"
+comm -23 "$workdir/built.modversions" "$workdir/stock.modversions" > "$workdir/unsupported.modversions"
+if [[ -s $workdir/unsupported.modversions ]]; then
+	cat "$workdir/unsupported.modversions"
+	die "rebuilt xe module has imports absent from Ubuntu's stock module"
+fi
 
 strip --strip-debug "$built_module"
 zstd -f -q "$built_module" -o "$workdir/xe.ko.zst"

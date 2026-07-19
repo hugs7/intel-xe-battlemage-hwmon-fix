@@ -13,6 +13,8 @@ install -d /var/lib/b70-xe-hwmon /usr/local/sbin \
 	/etc/kernel/postinst.d /etc/kernel/header_postinst.d
 install -m 0644 "$repo_dir/xe-hwmon-battlemage-telemetry.patch" \
 	/var/lib/b70-xe-hwmon/xe-hwmon-battlemage-telemetry.patch
+install -m 0644 "$repo_dir/xe-hwmon-battlemage-forcewake-7.0.patch" \
+	/var/lib/b70-xe-hwmon/xe-hwmon-battlemage-forcewake-7.0.patch
 install -m 0755 "$repo_dir/scripts/b70-xe-rebuild" /usr/local/sbin/b70-xe-rebuild
 install -m 0755 "$repo_dir/scripts/b70-xe-kernel-hook" \
 	/etc/kernel/postinst.d/b70-xe-hwmon
