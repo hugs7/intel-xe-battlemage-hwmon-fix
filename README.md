@@ -52,9 +52,9 @@ thermal-mailbox support. Unsupported mailbox channels are hidden.
 targets Linux 7.0, where the expanded thermal sensors are already upstream. It
 adds only the force-wake workaround to the upstream temperature read paths.
 
-[`xe-hwmon-battlemage-forcewake.patch`](xe-hwmon-battlemage-forcewake.patch) is
-retained as the historical minimal option. It only applies the package/VRAM
-force-wake workaround.
+[`xe-hwmon-battlemage-forcewake-6.17.patch`](xe-hwmon-battlemage-forcewake-6.17.patch)
+is retained as the historical minimal Linux 6.17 option. It only applies the
+package/VRAM force-wake workaround.
 
 ## Automatic setup on Ubuntu 24.04
 
@@ -129,7 +129,7 @@ cp "/boot/config-$(uname -r)" .config
 cp "/usr/src/linux-headers-$(uname -r)/Module.symvers" .
 make olddefconfig
 make modules_prepare
-patch -p1 < /path/to/repo/xe-hwmon-battlemage-forcewake.patch
+patch -p1 < /path/to/repo/xe-hwmon-battlemage-forcewake-6.17.patch
 ```
 
 Build `xe.ko`. Adding the Xe build directory to `PATH` allows the kernel build to

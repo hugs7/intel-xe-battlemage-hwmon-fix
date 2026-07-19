@@ -34,7 +34,7 @@
 +				return -ETIMEDOUT;
 +			}
 +
-+			/* Allow thermal telemetry to refresh after leaving RC6. */
++			/* Allow Battlemage thermal telemetry to refresh after leaving RC6. */
 +			usleep_range(1000, 2000);
 +		}
 +
