@@ -33,8 +33,7 @@ readonly stock_module="$modules_dir/kernel/drivers/gpu/drm/xe/xe.ko.zst"
 readonly override_dir="$modules_dir/updates/b70-xe"
 readonly override_module="$override_dir/xe.ko.zst"
 
-dpkg-query -W -f='${db:Status-Status}' "$headers_package" 2>/dev/null |
-	grep -qx 'installed' || die "$headers_package is not installed"
+dpkg-query -W "$headers_package" >/dev/null 2>&1 || die "$headers_package is not installed"
 [[ -f $headers_dir/Module.symvers ]] || die "missing $headers_dir/Module.symvers"
 [[ -f $boot_config ]] || die "missing $boot_config"
 [[ -f $stock_module ]] || die "missing stock module: $stock_module"
