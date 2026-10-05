@@ -11,12 +11,12 @@ exposes the available per-channel VRAM temperature registers.
 
 - Intel Arc Pro B70 / Battlemage G31 (`8086:e223`)
 - Subsystem `6688:8073`
-- Ubuntu 24.04
-- Ubuntu HWE kernels `6.17.0-35-generic` and `7.0.0-28-generic`
+- Ubuntu 24.04 HWE kernels `6.17.0-35-generic` and `7.0.0-28-generic`
+- Ubuntu 26.04 kernel `7.0.0-38-generic`
 - `xe` kernel driver
 
-The installed test modules were built from Ubuntu's matching `linux-hwe-6.17`
-and `linux-hwe-7.0` source packages. Do not install a compiled module built for
+The installed test modules were built from Ubuntu's matching `linux-hwe-6.17`,
+`linux-hwe-7.0` (24.04) and `linux` (26.04) source packages. Do not install a compiled module built for
 a different kernel.
 
 ## Symptoms and result
@@ -56,13 +56,13 @@ adds only the force-wake workaround to the upstream temperature read paths.
 is retained as the historical minimal Linux 6.17 option. It only applies the
 package/VRAM force-wake workaround.
 
-## Automatic setup on Ubuntu 24.04
+## Automatic setup on Ubuntu 24.04 and 26.04
 
 Install the build dependencies and this repository's helper and package hooks:
 
 ```bash
-sudo apt install bc bison build-essential dpkg-dev flex libelf-dev libssl-dev \
-  linux-headers-"$(uname -r)" wget zstd
+sudo apt install bc bison build-essential dpkg-dev flex libdw-dev libelf-dev \
+  libssl-dev linux-headers-"$(uname -r)" wget zstd
 sudo ./install.sh
 ```
 
@@ -74,7 +74,8 @@ The hook logs failures to `/var/log/b70-xe-hwmon.log` but always returns success
 so an optional local module can never fail a kernel package update.
 
 The helper intentionally supports only kernels whose headers identify their
-source package as `linux-hwe-6.17` or `linux-hwe-7.0`. It downloads the exact
+source package as `linux-hwe-6.17`, `linux-hwe-7.0`, or `linux` 7.0.0 (the
+Ubuntu 26.04 kernel). It downloads the exact
 matching source files from Ubuntu's archive (falling back to Launchpad), applies
 the matching patch, builds with the installed kernel's exact release, and
 compares both vermagic and imported symbol CRCs with Ubuntu's stock `xe.ko`. Only
@@ -82,6 +83,17 @@ then does it atomically place the override and refresh depmod and the initramfs.
 A missing header, source/patch mismatch (including a future source that already
 contains some backport), build error, or verification error leaves the stock
 module—and any existing working override—untouched.
+
+An existing override is re-verified against the stock module's symbol CRCs on
+every run. A distribution upgrade can replace a kernel with a different build
+that has the same release name (24.04's `linux-hwe-7.0` 7.0.0-38 and 26.04's
+`linux` 7.0.0-38, for example); the old override then fails to load and leaves
+the GPU without a driver. A stale override is removed (and the initramfs
+refreshed) before any rebuild is attempted, so a failed rebuild falls back to the
+stock driver.
+
+Ubuntu 26.04 kernels use `CONFIG_GENDWARFKSYMS`, which is why `libdw-dev` is
+required.
 
 To build immediately rather than waiting for a package hook:
 
@@ -225,7 +237,7 @@ The packaged Ubuntu `xe` module remains in the kernel's normal module directory.
 ## Caveats
 
 - This was tested on one Arc Pro B70 and one Ubuntu kernel build.
-- Supported 6.17 and 7.0 HWE kernels are automatically rebuilt after setup; all
+- Supported 6.17 and 7.0 kernels are automatically rebuilt after setup; all
   other kernel series continue to use their stock module.
 - Polling temperature now briefly force-wakes the GT, which may have a small
   power-management cost proportional to sensor polling frequency.

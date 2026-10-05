@@ -33,15 +33,35 @@ readonly stock_module="$modules_dir/kernel/drivers/gpu/drm/xe/xe.ko.zst"
 readonly override_dir="$modules_dir/updates/b70-xe"
 readonly override_module="$override_dir/xe.ko.zst"
 
-dpkg-query -W "$headers_package" >/dev/null 2>&1 || die "$headers_package is not installed"
-[[ -f $headers_dir/Module.symvers ]] || die "missing $headers_dir/Module.symvers"
-[[ -f $boot_config ]] || die "missing $boot_config"
 [[ -f $stock_module ]] || die "missing stock module: $stock_module"
+
+# Print symbol imports of $1 (with CRCs) that Ubuntu's stock xe.ko lacks.
+# Any output means the module will not load into the installed kernel.
+unsupported_imports() {
+	LC_ALL=C comm -23 \
+		<(modprobe --dump-modversions "$1" | LC_ALL=C sort) \
+		<(modprobe --dump-modversions "$stock_module" | LC_ALL=C sort)
+}
+
+# A kernel package can be replaced by a different build with the same release
+# name (for example a distribution upgrade from linux-hwe-7.0 to linux). An
+# override built for the old build then fails to load, leaving the GPU without a
+# driver. Remove it before anything else can stop this script.
+if [[ -f $override_module && -n $(unsupported_imports "$override_module") ]]; then
+	log "existing override does not match $kernel_release symbol versions; removing it"
+	rm -f "$override_module"
+	depmod -a "$kernel_release"
+	update-initramfs -u -k "$kernel_release"
+fi
 
 if [[ -f $override_module && $force != --force ]]; then
 	log "override already exists for $kernel_release"
 	exit 0
 fi
+
+dpkg-query -W "$headers_package" >/dev/null 2>&1 || die "$headers_package is not installed"
+[[ -f $headers_dir/Module.symvers ]] || die "missing $headers_dir/Module.symvers"
+[[ -f $boot_config ]] || die "missing $boot_config"
 
 source_package=$(dpkg-query -W -f='${source:Package}' "$headers_package")
 source_version=$(dpkg-query -W -f='${source:Version}' "$headers_package")
@@ -51,6 +71,12 @@ case $source_package in
 		patch_file="$PATCH_DIR/xe-hwmon-battlemage-telemetry.patch"
 		;;
 	linux-hwe-7.0)
+		patch_file="$PATCH_DIR/xe-hwmon-battlemage-forcewake-7.0.patch"
+		;;
+	linux)
+		# Ubuntu 26.04 ships Linux 7.0 as its main (non-HWE) kernel.
+		[[ $source_version == 7.0.0-* ]] ||
+			die "unsupported $source_package version $source_version; leaving the stock driver in place"
 		patch_file="$PATCH_DIR/xe-hwmon-battlemage-forcewake-7.0.patch"
 		;;
 	*)
@@ -131,11 +157,9 @@ built_vermagic=$(modinfo -F vermagic "$built_module")
 [[ $built_vermagic == "$stock_vermagic" ]] ||
 	die "vermagic differs from Ubuntu's stock xe module"
 
-modprobe --dump-modversions "$stock_module" | sort > "$workdir/stock.modversions"
-modprobe --dump-modversions "$built_module" | sort > "$workdir/built.modversions"
-comm -23 "$workdir/built.modversions" "$workdir/stock.modversions" > "$workdir/unsupported.modversions"
-if [[ -s $workdir/unsupported.modversions ]]; then
-	cat "$workdir/unsupported.modversions"
+unsupported=$(unsupported_imports "$built_module")
+if [[ -n $unsupported ]]; then
+	printf '%s\n' "$unsupported"
 	die "rebuilt xe module has imports absent from Ubuntu's stock module"
 fi
 
