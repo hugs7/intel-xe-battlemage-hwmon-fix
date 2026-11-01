@@ -20,5 +20,9 @@ install -m 0755 "$repo_dir/scripts/b70-xe-kernel-hook" \
 	/etc/kernel/postinst.d/b70-xe-hwmon
 install -m 0755 "$repo_dir/scripts/b70-xe-kernel-hook" \
 	/etc/kernel/header_postinst.d/b70-xe-hwmon
+install -m 0644 "$repo_dir/scripts/b70-xe-hwmon-refresh.service" \
+	/etc/systemd/system/b70-xe-hwmon-refresh.service
+systemctl daemon-reload
+systemctl enable --now b70-xe-hwmon-refresh.service
 
-echo "Installed b70-xe-hwmon hooks; rebuilds run when matching kernels or headers are installed."
+echo "Installed b70-xe-hwmon hooks and telemetry refresh service; rebuilds run when matching kernels or headers are installed."

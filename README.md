@@ -95,6 +95,13 @@ stock driver.
 Ubuntu 26.04 kernels use `CONFIG_GENDWARFKSYMS`, which is why `libdw-dev` is
 required.
 
+The patch refreshes telemetry only when a temperature is read. If nothing
+polls the sensors (for example, GNOME disables sensor extensions while the
+screen is locked, and the B70 drives no display), the fan stays fast after a
+GPU load ends. The installer therefore also enables
+`b70-xe-hwmon-refresh.service`, which reads the package temperature every five
+seconds.
+
 To build immediately rather than waiting for a package hook:
 
 ```bash

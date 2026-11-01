@@ -1,0 +1,19 @@
+# The patched driver only refreshes Battlemage thermal telemetry when a
+# temperature is read. Desktop sensor widgets stop polling when the screen
+# locks, so the firmware fan curve then sees a stale package temperature and
+# the fan stays fast after a GPU load ends. Poll the package temperature from a
+# system service so the refresh no longer depends on a logged-in session.
+#
+# ponytail: a userspace poller instead of in-driver delayed work; it can be
+# deployed without reloading xe. Moving the periodic force-wake into the patch
+# would remove this service.
+[Unit]
+Description=Keep Intel Battlemage xe temperature telemetry fresh
+
+[Service]
+ExecStart=/bin/sh -c 'while :; do cat /sys/bus/pci/drivers/xe/*/hwmon/hwmon*/temp2_input >/dev/null 2>&1; sleep 5; done'
+Restart=always
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
